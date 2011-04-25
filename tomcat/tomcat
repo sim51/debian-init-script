@@ -1,0 +1,136 @@
+#!/bin/sh
+# /etc/init.d/tomcat
+
+# Startup script for Tomcat
+#
+# description: Tomcat Servlet Engine
+# processname: Tomcat
+
+# User under which tomcat will run
+TOMCAT_USER=tomcat
+TOMCAT_GROUP=tomcat
+JAVA_HOME=/usr/local/java/current
+TOMCAT_HOME=/opt/apache-tomcat-5.5.26
+TOMCAT_STOP_PORT=8005
+TOMCAT_LOCK_PATH=/var/lock/tomcat
+TOMCAT_JPDA_PORT=8000
+export JAVA_HOME=$JAVA_HOME
+export TOMCAT_HOME=$TOMCAT_HOME
+
+RETVAL=0
+
+# start, debug, stop, and status functions
+start() {
+    # Start Tomcat in normal mode
+    SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+    if [ $SHUTDOWN_PORT -ne 0 ]; then
+        echo "Tomcat already started"
+    else
+        echo "Starting Tomcat..."
+        # Change owner
+        chown -R $TOMCAT_USER:$TOMCAT_GROUP $TOMCAT_HOME/*
+        # Clean working directory
+        rm -rf $TOMCAT_HOME/work/*
+        su -l $TOMCAT_USER -c $TOMCAT_HOME'/bin/startup.sh'
+        SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+        while [ $SHUTDOWN_PORT -eq 0 ]; do
+            sleep 1
+            SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+        done
+        RETVAL=$?
+        echo "Tomcat started in normal mode"
+        [ $RETVAL=0 ] && touch $TOMCAT_LOCK_PATH
+    fi
+}
+
+debug() {
+    # Start Tomcat in debug mode
+    SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+    if [ $SHUTDOWN_PORT -ne 0 ]; then
+        echo "Tomcat already started"
+    else
+        echo "Starting tomcat in debug mode..."
+        # Change owner
+        chown -R $TOMCAT_USER:$TOMCAT_GROUP $TOMCAT_HOME/*
+        # Clean working directory
+        rm -rf $TOMCAT_HOME/work/*
+        su -l $TOMCAT_USER -c $TOMCAT_HOME'/bin/catalina.sh jpda start'
+        SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+        while [ $SHUTDOWN_PORT -eq 0 ]; do
+            sleep 1
+            SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+        done
+        RETVAL=$?
+        echo "Tomcat started in debug mode"
+        [ $RETVAL=0 ] && touch $TOMCAT_LOCK_PATH
+    fi
+}
+
+stop() {
+    SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+    if [ $SHUTDOWN_PORT -eq 0 ]; then
+        PID=`ps -ef | grep $TOMCAT_HOME | grep -v grep | awk '{print $2}'`
+        if [ $PID -eq 0 ]; then
+             kill -9 $PID
+        fi
+        echo "Tomcat already stopped"
+    else
+        echo "Stopping tomcat..."
+        su -l $TOMCAT_USER -c $TOMCAT_HOME'/bin/shutdown.sh'
+        SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+        while [ $SHUTDOWN_PORT -ne 0 ]; do
+            sleep 1
+            SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+        done
+        RETVAL=$?
+        sleep 10
+        PID=`ps -ef | grep $TOMCAT_HOME | grep -v grep | awk '{print $2}'`
+        if [ $PID -eq 0 ]; then
+            kill -9 $PID
+        fi
+        echo "Tomcat stopped"
+        [ $RETVAL=0 ] && rm -f $TOMCAT_LOCK_PATH $TOMCAT_HOME/bin/tomcat.pid
+    fi
+}
+
+status() {
+    SHUTDOWN_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_STOP_PORT|wc -l`
+    if [ $SHUTDOWN_PORT -eq 0 ]; then
+        echo "Tomcat stopped"
+    else
+        MODE="normal"
+        JPDA_PORT=`netstat -vatn|grep LISTEN|grep $TOMCAT_JPDA_PORT|wc -l`
+        if [ $JPDA_PORT -ne 0 ]; then
+            MODE="debug"
+        fi
+        echo "Tomcat running in $MODE mode"
+    fi
+}
+
+case "$1" in
+  start)
+        start
+        ;;
+  debug)
+        debug
+        ;;
+  stop)
+        stop
+        ;;
+  restart)
+        stop
+        start
+        ;;
+  redebug)
+        stop
+        debug
+        ;;
+  status)
+    status
+    ;;
+  *)
+    echo "Usage: $0 {start|debug|stop|restart|redebug|status}"
+    exit 1
+esac
+
+exit $RETVAL
