@@ -1,0 +1,97 @@
+#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides:          play2
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start play2.0 application.
+# Description:       Enable play2.0 application by daemon.
+### END INIT INFO
+
+PLAY_USER=bsimard
+PLAY_GROUP=bsimard
+
+JAVA_HOME=/usr/local/java/current
+PLAY_HOME=/usr/local/play2/current
+
+PLAY_APP_NAME=mobilIT
+PLAY_APP_HOME=/home/bsimard/workspace_logisima/mobilIT/mobilIT-play/
+PLAY_APP_ID=prod
+PLAY_APP_PORT=9002
+PLAY_APP_LOCK_FILE="/var/lock/$PLAY_APP_NAME"
+
+export JAVA_HOME=$JAVA_HOME
+export PATH=$PATH:$PLAY_HOME
+
+RETVAL=0
+
+# start, stop, restart, status, log functions
+start() {
+    # Start Play apps in normal mode
+    PLAY_APP_RUN=`netstat -vatn|grep LISTEN|grep $PLAY_APP_PORT|wc -l`
+    if [ $PLAY_APP_RUN -ne 0 ]; then
+        echo "Play2.0! application $PLAY_APP_NAME already started"
+    else
+        echo "Starting play2.0! application $PLAY_APP_NAME..."
+        # Change owner
+        chown -R $PLAY_USER:$PLAY_GROUP $PLAY_APP_HOME/*
+        su -l $PLAY_USER -c "cd $PLAY_APP_HOME;$PLAY_HOME/play clean compile stage;sh $PLAY_APP_HOME/target/start -Dhttp.port=$PLAY_APP_PORT &>/dev/null &"
+        PLAY_APP_RUN=`netstat -vatn|grep LISTEN|grep $PLAY_APP_PORT|wc -l`
+        while [ $PLAY_APP_RUN -eq 0 ]; do
+            sleep 1
+            PLAY_APP_RUN=`netstat -vatn|grep LISTEN|grep $PLAY_APP_PORT|wc -l`
+        done
+        RETVAL=$?
+        echo "Play2.0! application $PLAY_APP_NAME started in normal mode"
+        [ $RETVAL=0 ] && touch $PLAY_APP_LOCK_FILE
+    fi
+}
+
+
+stop() {
+    PLAY_APP_RUN=`netstat -vatn|grep LISTEN|grep $PLAY_APP_PORT|wc -l`
+    if [ $PLAY_APP_RUN -eq 0 ]; then
+        PID=`ps -ef | grep $PLAY_APP_HOME | grep -v grep | awk '{print $2}'`
+        if [[ -n $PID && $PID -eq 0 ]]; then
+             kill -9 $PID
+        fi
+        echo "Play2.0! application $PLAY_APP_NAME already stopped"
+    else
+        echo "Stopping play! application $PLAY_APP_NAME ..."
+        cd $PLAY_APP_HOME
+        su -l $PLAY_USER -c cd $PLAY_APP_HOME;$PLAY_HOME/play stop
+        PLAY_APP_RUN=`netstat -vatn|grep LISTEN|grep $PLAY_APP_PORT|wc -l`
+        while [ $PLAY_APP_RUN -ne 0 ]; do
+            sleep 1
+            PLAY_APP_RUN=`netstat -vatn|grep LISTEN|grep $PLAY_APP_PORT|wc -l`
+        done
+        RETVAL=$?
+        sleep 10
+        PID=`ps -ef | grep $PLAY_APP_HOME | grep -v grep | awk '{print $2}'`
+        if [[ -n $PID && $PID -eq 0 ]]; then
+            kill -9 $PID
+        fi
+        echo "Play2.0! application $PLAY_APP_NAME stopped"
+        [ $RETVAL=0 ] && rm -f PLAY_APP_LOCK_FILE $PLAY_APP_HOME'/server.pid'
+    fi
+}
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  restart)
+        stop
+        start
+        ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+esac
+
+exit $RETVAL
